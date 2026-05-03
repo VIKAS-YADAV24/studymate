@@ -5,9 +5,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-user-api-key, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `You are a diagram generator. Given study material key points, return ONLY valid Mermaid.js flowchart code — nothing else. No markdown fences, no explanation. Start directly with 'flowchart TD'. Use concise node labels (max 6 words each). Connect ideas logically showing how concepts relate, cause each other, or flow into each other. Use these node shapes: rectangles for main concepts [Label], rounded rectangles for processes (Label), diamonds for decisions {Label?}, and stadium shapes for outcomes ([Label]). Add subgraphs to group related concepts when there are 6 or more nodes. Max 12 nodes total. Make the diagram genuinely useful for understanding the topic, not just a list.`;
+const SYSTEM_PROMPT = `You are a diagram generator. Given study material key points, return ONLY valid Mermaid.js flowchart code — nothing else. No markdown fences, no explanation. Start directly with 'flowchart TD'. Use concise node labels (max 6 words each). Connect ideas logically showing how concepts relate, cause each other, or flow into each other. Use these node shapes: rectangles for main concepts [Label], rounded rectangles for processes (Label), diamonds for decisions {Label?}, and stadium shapes for outcomes([Label]). Add subgraphs to group related concepts when there are 6 or more nodes. Max 12 nodes total. Make the diagram genuinely useful for understanding the topic, not just a list.`;
 
-// Strip markdown code fences if the model adds them anyway
 const cleanMermaid = (raw: string): string => {
   let s = raw.trim();
   s = s.replace(/^```(?:mermaid)?\s*/i, "");
@@ -27,10 +26,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const userApiKey = req.headers.get("x-user-api-key");
-    const apiKey = userApiKey || LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
+    const apiKey = userApiKey || ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
 
     const userPrompt = [
       title ? `Topic: ${title}` : "",
@@ -38,18 +37,18 @@ Deno.serve(async (req) => {
       content ? `\nContext summary:\n${String(content).slice(0, 2000)}` : "",
     ].filter(Boolean).join("\n\n");
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
+        model: "claude-haiku-4-5",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userPrompt }],
       }),
     });
 
@@ -59,23 +58,17 @@ Deno.serve(async (req) => {
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    if (response.status === 402) {
-      return new Response(
-        JSON.stringify({ error: "AI credits exhausted. Please add funds to your Lovable workspace." }),
-        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
     if (!response.ok) {
       const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      return new Response(JSON.stringify({ error: "AI gateway error" }), {
+      console.error("Anthropic API error:", response.status, t);
+      return new Response(JSON.stringify({ error: "AI API error: " + response.status }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const data = await response.json();
-    const raw = data.choices?.[0]?.message?.content as string | undefined;
+    const raw = data.content?.[0]?.text as string | undefined;
     if (!raw) {
       return new Response(JSON.stringify({ error: "No diagram returned from AI" }), {
         status: 500,

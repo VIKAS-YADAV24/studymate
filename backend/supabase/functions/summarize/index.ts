@@ -12,7 +12,7 @@ Given a piece of study material, return a JSON object with these fields:
 - keywords: array of 5-10 single-word or short-phrase technical terms.
 - revisionBullets: array of 4-6 ultra-short revision flashcards (single sentences a student can quickly read before an exam).
 - difficultWords: array of objects {word, meaning} for 3-6 hard or technical words a student might not know (meaning <= 15 words, plain language).
-Return ONLY the tool call. Be accurate to the source material — do NOT invent facts.`;
+Return ONLY valid JSON matching this structure, no markdown fences, no extra text. Be accurate to the source material — do NOT invent facts.`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -26,58 +26,27 @@ Deno.serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const userApiKey = req.headers.get("x-user-api-key");
-    const apiKey = userApiKey || LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
+    const apiKey = userApiKey || ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
 
     const trimmed = content.length > 16000 ? content.slice(0, 16000) : content;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "claude-haiku-4-5",
+        max_tokens: 2048,
+        system: SYSTEM_PROMPT,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: `Study material:\n\n${trimmed}` },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "produce_study_summary",
-              description: "Return a structured study summary",
-              parameters: {
-                type: "object",
-                properties: {
-                  summary: { type: "string" },
-                  keyPoints: { type: "array", items: { type: "string" } },
-                  keywords: { type: "array", items: { type: "string" } },
-                  revisionBullets: { type: "array", items: { type: "string" } },
-                  difficultWords: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        word: { type: "string" },
-                        meaning: { type: "string" },
-                      },
-                      required: ["word", "meaning"],
-                      additionalProperties: false,
-                    },
-                  },
-                },
-                required: ["summary", "keyPoints", "keywords", "revisionBullets", "difficultWords"],
-                additionalProperties: false,
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "produce_study_summary" } },
       }),
     });
 
@@ -87,31 +56,20 @@ Deno.serve(async (req) => {
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    if (response.status === 402) {
-      return new Response(
-        JSON.stringify({ error: "AI credits exhausted. Please add funds to your Lovable workspace." }),
-        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
     if (!response.ok) {
       const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      return new Response(JSON.stringify({ error: "AI gateway error" }), {
+      console.error("Anthropic API error:", response.status, t);
+      return new Response(JSON.stringify({ error: "AI API error: " + response.status }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) {
-      return new Response(JSON.stringify({ error: "No structured response from AI" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const raw = data.content?.[0]?.text ?? "";
+    const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    const parsed = JSON.parse(clean);
 
-    const parsed = JSON.parse(toolCall.function.arguments);
     return new Response(JSON.stringify(parsed), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

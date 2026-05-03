@@ -6,22 +6,27 @@ const corsHeaders = {
 };
 
 const SYSTEM_PROMPT = `You are StudyMate's Last Minute Revision coach for students who must revise quickly before an exam.
-Given study material, return a structured revision in THREE progressively detailed time-boxed formats:
+Given study material, return a structured revision in THREE progressively detailed time-boxed formats.
 
-1. thirtySecond: 3-5 ultra-short bullet points, each 1 line max, capturing only the absolute must-know facts.
-2. twoMinute: 5-8 bullet points, each one short concept + a 1-line plain explanation. Slightly more detail than 30s.
-3. fiveMinute: 4-6 mini-sections, each with a short heading and 2-4 bullets covering all major ideas.
-
-Also return:
-- memoryHooks: 4-7 punchy one-liners that act like exam shortcuts / mnemonics. Format like "Concept = catchy hook". Example: "Photosynthesis = Sunlight → Food Factory".
-- keywords: 6-12 short technical terms / definitions students must recognise.
-- definitions: 3-6 objects {term, definition} for the most important named concepts (definition <= 20 words).
+Return ONLY valid JSON (no markdown fences) in this exact shape:
+{
+  "thirtySecond": ["bullet1","bullet2",...],
+  "twoMinute": ["bullet1","bullet2",...],
+  "fiveMinute": [{"heading":"...","bullets":["...","..."]},...],
+  "memoryHooks": ["Concept = catchy hook",...],
+  "keywords": ["term1","term2",...],
+  "definitions": [{"term":"...","definition":"..."},...]
+}
 
 Rules:
+- thirtySecond: 3-5 ultra-short bullets, absolute must-know facts only.
+- twoMinute: 5-8 bullets, each a short concept + 1-line plain explanation.
+- fiveMinute: 4-6 mini-sections with heading + 2-4 bullets covering all major ideas.
+- memoryHooks: 4-7 punchy exam shortcuts/mnemonics. Format like "Concept = catchy hook".
+- keywords: 6-12 short technical terms students must recognise.
+- definitions: 3-6 objects for the most important named concepts (definition <= 20 words).
 - Be FAITHFUL to the source material. Do not invent facts.
-- Use plain student-friendly language.
-- Keep every bullet short and skimmable.
-- Return ONLY the tool call.`;
+- Use plain student-friendly language. Keep every bullet short and skimmable.`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -35,77 +40,25 @@ Deno.serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const userApiKey = req.headers.get("x-user-api-key");
-    const apiKey = userApiKey || LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
+    const apiKey = userApiKey || ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
 
     const trimmed = content.length > 16000 ? content.slice(0, 16000) : content;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: `Study material:\n\n${trimmed}` },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "produce_last_minute_revision",
-              description: "Return time-boxed revisions plus memory hooks and keywords",
-              parameters: {
-                type: "object",
-                properties: {
-                  thirtySecond: { type: "array", items: { type: "string" } },
-                  twoMinute: { type: "array", items: { type: "string" } },
-                  fiveMinute: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        heading: { type: "string" },
-                        bullets: { type: "array", items: { type: "string" } },
-                      },
-                      required: ["heading", "bullets"],
-                      additionalProperties: false,
-                    },
-                  },
-                  memoryHooks: { type: "array", items: { type: "string" } },
-                  keywords: { type: "array", items: { type: "string" } },
-                  definitions: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        term: { type: "string" },
-                        definition: { type: "string" },
-                      },
-                      required: ["term", "definition"],
-                      additionalProperties: false,
-                    },
-                  },
-                },
-                required: [
-                  "thirtySecond",
-                  "twoMinute",
-                  "fiveMinute",
-                  "memoryHooks",
-                  "keywords",
-                  "definitions",
-                ],
-                additionalProperties: false,
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "produce_last_minute_revision" } },
+        model: "claude-haiku-4-5",
+        max_tokens: 3000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: `Study material:\n\n${trimmed}` }],
       }),
     });
 
@@ -115,31 +68,20 @@ Deno.serve(async (req) => {
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    if (response.status === 402) {
-      return new Response(
-        JSON.stringify({ error: "AI credits exhausted. Please add funds to your Lovable workspace." }),
-        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
     if (!response.ok) {
       const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      return new Response(JSON.stringify({ error: "AI gateway error" }), {
+      console.error("Anthropic API error:", response.status, t);
+      return new Response(JSON.stringify({ error: "AI API error: " + response.status }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) {
-      return new Response(JSON.stringify({ error: "No structured response from AI" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const raw = data.content?.[0]?.text ?? "";
+    const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    const parsed = JSON.parse(clean);
 
-    const parsed = JSON.parse(toolCall.function.arguments);
     return new Response(JSON.stringify(parsed), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
