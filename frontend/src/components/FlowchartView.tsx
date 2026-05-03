@@ -6,9 +6,8 @@ import {
   Loader2, ExternalLink, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
 import type { Note } from "@/lib/study-types";
-import { getUserApiKey } from "@/hooks/use-api-key";
+import { generateFlowchart } from "@/lib/anthropic";
 
 interface FlowchartViewProps {
   note: Note;
@@ -85,35 +84,17 @@ export const FlowchartView = ({ note, onSave }: FlowchartViewProps) => {
     setLoading(true);
     setError(null);
     try {
-      const { data, error } = await supabase.functions.invoke("generate-flowchart", {
-        body: {
-          content: note.summary.summary,
-          keyPoints: note.summary.keyPoints,
-          title: note.title,
-        },
-        headers: getUserApiKey() ? { "x-user-api-key": getUserApiKey()! } : {},
+      const newCode = await generateFlowchart({
+        content: note.summary.summary,
+        keyPoints: note.summary.keyPoints,
+        title: note.title,
       });
-      if (error) {
-        toast.error((data as { error?: string } | undefined)?.error || error.message || "Failed to generate flowchart");
-        return;
-      }
-      const payload = data as { mermaidCode?: string; error?: string };
-      if (payload?.error) {
-        toast.error(payload.error);
-        return;
-      }
-      const newCode = payload?.mermaidCode?.trim();
-      if (!newCode) {
-        toast.error("AI didn't return a diagram.");
-        return;
-      }
       setCode(newCode);
       onSave(newCode);
       await renderDiagram(newCode);
       toast.success("Flowchart ready!");
     } catch (e) {
-      console.error(e);
-      toast.error("Couldn't reach the AI. Please try again.");
+      toast.error(e instanceof Error ? e.message : "Couldn't reach the AI. Please try again.");
     } finally {
       setLoading(false);
     }

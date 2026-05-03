@@ -328,3 +328,39 @@ export async function interpretMedicalReport(opts: {
   });
   return parseJson(raw);
 }
+
+// ─── Flowchart ────────────────────────────────────────────────────────────────
+
+const FLOWCHART_SYSTEM = `You are a diagram generator. Given study material key points, return ONLY valid Mermaid.js flowchart code — nothing else. No markdown fences, no explanation. Start directly with 'flowchart TD'. Use concise node labels (max 6 words each). Connect ideas logically showing how concepts relate, cause each other, or flow into each other. Use these node shapes: rectangles for main concepts [Label], rounded rectangles for processes (Label), diamonds for decisions {Label?}, and stadium shapes for outcomes([Label]). Add subgraphs to group related concepts when there are 6 or more nodes. Max 12 nodes total. Make the diagram genuinely useful for understanding the topic, not just a list.`;
+
+export async function generateFlowchart(opts: {
+  content?: string;
+  keyPoints: string[];
+  title?: string;
+}): Promise<string> {
+  if (!opts.keyPoints || opts.keyPoints.length === 0) {
+    throw new Error("Missing keyPoints — generate a summary first.");
+  }
+
+  const userPrompt = [
+    opts.title ? `Topic: ${opts.title}` : "",
+    `Key points:\n${opts.keyPoints.map((k, i) => `${i + 1}. ${k}`).join("\n")}`,
+    opts.content ? `\nContext summary:\n${String(opts.content).slice(0, 2000)}` : "",
+  ].filter(Boolean).join("\n\n");
+
+  const raw = await callAI({
+    system: FLOWCHART_SYSTEM,
+    messages: [{ role: "user", content: userPrompt }],
+    max_tokens: 1024,
+  });
+
+  // Strip any accidental markdown fences
+  const clean = raw
+    .trim()
+    .replace(/^```(?:mermaid)?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+
+  if (!clean) throw new Error("AI didn't return a diagram.");
+  return clean;
+}
