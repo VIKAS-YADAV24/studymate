@@ -6,9 +6,8 @@ import { AppShell } from "@/components/AppShell";
 import { RevisionSetup } from "@/components/RevisionSetup";
 import { RevisionPanel } from "@/components/RevisionPanel";
 import { ChatPanel } from "@/components/ChatPanel";
-import { supabase } from "@/integrations/supabase/client";
+import { generateRevision } from "@/lib/anthropic";
 import type { ChatMessage, Revision } from "@/lib/study-types";
-import { getUserApiKey } from "@/hooks/use-api-key";
 
 type Session = {
   title: string;
@@ -24,22 +23,7 @@ const RevisionPage = () => {
   const generate = async (title: string, content: string) => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("revision", {
-        body: { content },
-        headers: getUserApiKey() ? { "x-user-api-key": getUserApiKey()! } : {},
-      });
-      if (error) {
-        toast.error(
-          (data as { error?: string } | undefined)?.error ||
-            error.message ||
-            "Failed to generate revision",
-        );
-        return;
-      }
-      if ((data as { error?: string } | undefined)?.error) {
-        toast.error((data as { error?: string }).error!);
-        return;
-      }
+      const data = await generateRevision(content);
       setSession((prev) => ({
         title,
         content,
@@ -48,8 +32,7 @@ const RevisionPage = () => {
       }));
       toast.success("Revision ready!");
     } catch (e) {
-      console.error(e);
-      toast.error("Couldn't reach the AI. Please try again.");
+      toast.error(e instanceof Error ? e.message : "Couldn't reach the AI. Please try again.");
     } finally {
       setIsLoading(false);
     }

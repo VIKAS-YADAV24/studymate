@@ -45,7 +45,7 @@ export function SettingsDialog() {
     clearUserApiKey();
     setKey("");
     setHasKey(false);
-    toast.success("API key removed. Falling back to the shared key.");
+    toast.success("API key removed.");
   };
 
   return (
@@ -79,17 +79,17 @@ export function SettingsDialog() {
             <p className="text-sm text-muted-foreground">
               {hasKey
                 ? "Using your personal API key"
-                : "Using the shared app key (limited quota)"}
+                : "No API key set — add yours below to use the app"}
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="api-key-input">Your Lovable / OpenRouter API Key</Label>
+            <Label htmlFor="api-key-input">Your Anthropic API Key</Label>
             <div className="relative">
               <Input
                 id="api-key-input"
                 type={showKey ? "text" : "password"}
-                placeholder="sk-or-v1-..."
+                placeholder="sk-ant-..."
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
                 className="pr-10 font-mono text-sm"
@@ -110,13 +110,13 @@ export function SettingsDialog() {
           </div>
 
           <a
-            href="https://openrouter.ai/keys"
+            href="https://console.anthropic.com/settings/keys"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
           >
             <ExternalLink className="h-3.5 w-3.5" />
-            Get a free API key from OpenRouter
+            Get an API key from Anthropic Console
           </a>
 
           <div className="flex gap-2 pt-1">

@@ -6,15 +6,9 @@ import { AppSidebar } from "./AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { loadNotes, saveNotes, loadTheme, saveTheme } from "@/lib/study-storage";
-import { supabase } from "@/integrations/supabase/client";
 import type { ChatMessage, Note, Summary } from "@/lib/study-types";
-import { getUserApiKey } from "@/hooks/use-api-key";
 import { useAuth } from "@/lib/auth-context";
-
-function getInvokeHeaders(): Record<string, string> {
-  const key = getUserApiKey();
-  return key ? { "x-user-api-key": key } : {};
-}
+import { summarizeContent } from "@/lib/anthropic";
 
 export type StudyState = {
   notes: Note[];
@@ -71,23 +65,11 @@ export function AppShell({ children }: AppShellProps) {
   const generateSummary = useCallback(async (content: string): Promise<Summary | null> => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("summarize", {
-        body: { content },
-        headers: getInvokeHeaders(),
-      });
-      if (error) {
-        const msg = (data as { error?: string } | undefined)?.error || error.message || "Failed to summarize";
-        toast.error(msg);
-        return null;
-      }
-      if ((data as { error?: string } | undefined)?.error) {
-        toast.error((data as { error?: string }).error!);
-        return null;
-      }
-      return data as Summary;
+      const result = await summarizeContent(content);
+      return result as Summary;
     } catch (e) {
-      console.error(e);
-      toast.error("Couldn't reach the AI. Please try again.");
+      const msg = e instanceof Error ? e.message : "Couldn't reach the AI. Please try again.";
+      toast.error(msg);
       return null;
     } finally {
       setIsLoading(false);

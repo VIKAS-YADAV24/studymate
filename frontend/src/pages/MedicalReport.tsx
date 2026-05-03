@@ -6,9 +6,8 @@ import { MedicalReportView } from "@/components/MedicalReportView";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { supabase } from "@/integrations/supabase/client";
+import { interpretMedicalReport } from "@/lib/anthropic";
 import type { MedicalReport } from "@/lib/study-types";
-import { getUserApiKey } from "@/hooks/use-api-key";
 import { extractFileText } from "@/lib/file-utils";
 
 const MedicalReportPage = () => {
@@ -65,25 +64,13 @@ const MedicalReportPage = () => {
     }
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("medical-report", {
-        body: {
-          text: text.trim() || undefined,
-          imageDataUrl: imageDataUrl || undefined,
-        },
-        headers: getUserApiKey() ? { "x-user-api-key": getUserApiKey()! } : {},
+      const data = await interpretMedicalReport({
+        text: text.trim() || undefined,
+        imageDataUrl: imageDataUrl || undefined,
       });
-      if (error) {
-        toast.error((data as { error?: string } | undefined)?.error || error.message || "Failed to interpret");
-        return;
-      }
-      if ((data as { error?: string } | undefined)?.error) {
-        toast.error((data as { error?: string }).error!);
-        return;
-      }
       setReport(data as MedicalReport);
     } catch (e) {
-      console.error(e);
-      toast.error("Couldn't reach the AI. Please try again.");
+      toast.error(e instanceof Error ? e.message : "Couldn't reach the AI. Please try again.");
     } finally {
       setIsLoading(false);
     }

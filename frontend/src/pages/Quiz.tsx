@@ -3,9 +3,8 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { QuizSetup } from "@/components/QuizSetup";
 import { QuizPlayer } from "@/components/QuizPlayer";
-import { supabase } from "@/integrations/supabase/client";
+import { generateQuiz } from "@/lib/anthropic";
 import type { Quiz, QuizDifficulty } from "@/lib/study-types";
-import { getUserApiKey } from "@/hooks/use-api-key";
 
 const QuizPage = () => {
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -14,22 +13,10 @@ const QuizPage = () => {
   const generate = async (topic: string, difficulty: QuizDifficulty, numQuestions: number) => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("quiz", {
-        body: { topic, difficulty, numQuestions },
-        headers: getUserApiKey() ? { "x-user-api-key": getUserApiKey()! } : {},
-      });
-      if (error) {
-        toast.error((data as { error?: string } | undefined)?.error || error.message || "Failed to generate quiz");
-        return;
-      }
-      if ((data as { error?: string } | undefined)?.error) {
-        toast.error((data as { error?: string }).error!);
-        return;
-      }
+      const data = await generateQuiz(topic, difficulty, numQuestions);
       setQuiz(data as Quiz);
     } catch (e) {
-      console.error(e);
-      toast.error("Couldn't reach the AI. Please try again.");
+      toast.error(e instanceof Error ? e.message : "Couldn't reach the AI. Please try again.");
     } finally {
       setIsLoading(false);
     }

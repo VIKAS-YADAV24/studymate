@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { SpeakButton } from "./SpeakButton";
 import type { ChatMessage } from "@/lib/study-types";
-import { getUserApiKey } from "@/hooks/use-api-key";
+import { chatWithNotes } from "@/lib/anthropic";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -21,8 +21,6 @@ const SUGGESTIONS = [
   "What should I memorize for an exam?",
 ];
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 export const ChatPanel = ({ messages, sourceContent, onMessagesChange }: ChatPanelProps) => {
   const [input, setInput] = useState("");
@@ -45,75 +43,12 @@ export const ChatPanel = ({ messages, sourceContent, onMessagesChange }: ChatPan
     setStreaming(true);
 
     try {
-      const userApiKey = getUserApiKey();
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
-          ...(userApiKey ? { "x-user-api-key": userApiKey } : {}),
-        },
-        body: JSON.stringify({
-          sourceContent,
-          messages: [...messages, userMsg].map((m) => ({ role: m.role, content: m.content })),
-        }),
-      });
-
-      if (resp.status === 429) {
-        toast.error("Rate limit reached. Please wait a moment.");
-        onMessagesChange([...messages, userMsg]);
-        return;
-      }
-      if (resp.status === 402) {
-        toast.error("AI credits exhausted. Add funds to your workspace.");
-        onMessagesChange([...messages, userMsg]);
-        return;
-      }
-      if (!resp.ok || !resp.body) throw new Error("Failed to start stream");
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      let assistantSoFar = "";
-      let done = false;
-
-      while (!done) {
-        const { done: d, value } = await reader.read();
-        if (d) break;
-        buf += decoder.decode(value, { stream: true });
-
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          let line = buf.slice(0, nl);
-          buf = buf.slice(nl + 1);
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (!line || line.startsWith(":")) continue;
-          if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (payload === "[DONE]") {
-            done = true;
-            break;
-          }
-          try {
-            const parsed = JSON.parse(payload);
-            const delta = parsed.choices?.[0]?.delta?.content as string | undefined;
-            if (delta) {
-              assistantSoFar += delta;
-              onMessagesChange([
-                ...messages,
-                userMsg,
-                { ...assistantMsg, content: assistantSoFar },
-              ]);
-            }
-          } catch {
-            buf = line + "\n" + buf;
-            break;
-          }
-        }
-      }
+      const allMessages = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }));
+      const text = await chatWithNotes(sourceContent, allMessages);
+      onMessagesChange([...messages, userMsg, { ...assistantMsg, content: text }]);
     } catch (err) {
-      console.error(err);
-      toast.error("Couldn't reach the AI. Please try again.");
+      const msg = err instanceof Error ? err.message : "Couldn't reach the AI. Please try again.";
+      toast.error(msg);
       onMessagesChange([...messages, userMsg]);
     } finally {
       setStreaming(false);
