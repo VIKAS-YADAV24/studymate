@@ -9,6 +9,7 @@ import { loadNotes, saveNotes, loadTheme, saveTheme } from "@/lib/study-storage"
 import { supabase } from "@/integrations/supabase/client";
 import type { ChatMessage, Note, Summary } from "@/lib/study-types";
 import { getUserApiKey } from "@/hooks/use-api-key";
+import { useAuth } from "@/lib/auth-context";
 
 function getInvokeHeaders(): Record<string, string> {
   const key = getUserApiKey();
@@ -33,6 +34,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const { logout } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -166,6 +168,7 @@ export function AppShell({ children }: AppShellProps) {
           onDeleteNote={deleteNote}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onLogout={logout}
         />
       </div>
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -178,6 +181,7 @@ export function AppShell({ children }: AppShellProps) {
             onDeleteNote={deleteNote}
             theme={theme}
             onToggleTheme={toggleTheme}
+            onLogout={logout}
           />
         </SheetContent>
       </Sheet>

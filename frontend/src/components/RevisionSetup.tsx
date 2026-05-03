@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, Loader2, Zap, Upload, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { addNote, loadNotes } from "@/lib/study-storage";
 import type { Note } from "@/lib/study-types";
+import { extractFileText } from "@/lib/file-utils";
 
 interface RevisionSetupProps {
   isLoading: boolean;
@@ -24,6 +25,8 @@ export const RevisionSetup = ({ isLoading, onGenerate }: RevisionSetupProps) => 
   const [content, setContent] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string>("");
+  const [fileReading, setFileReading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setNotes(loadNotes());
@@ -45,30 +48,28 @@ export const RevisionSetup = ({ isLoading, onGenerate }: RevisionSetupProps) => 
 
   const handleFile = async (file: File) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Please upload a file under 2 MB.");
-      return;
+    setFileReading(true);
+    try {
+      const text = await extractFileText(file);
+      if (!text) return;
+      const baseTitle = file.name.replace(/\.[^/.]+$/, "");
+      setContent(text);
+      if (!title) setTitle(baseTitle);
+      const newNote: Note = {
+        id: crypto.randomUUID(),
+        title: baseTitle,
+        content: text,
+        summary: null,
+        messages: [],
+        createdAt: Date.now(),
+      };
+      addNote(newNote);
+      setNotes(loadNotes());
+      toast.success("File loaded & saved to notes");
+    } finally {
+      setFileReading(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
-    if (!/\.(txt|md|csv|json)$/i.test(file.name)) {
-      toast.error("Only .txt, .md, .csv, .json supported. For PDFs, paste the text.");
-      return;
-    }
-    const text = await file.text();
-    const baseTitle = file.name.replace(/\.[^/.]+$/, "");
-    setContent(text);
-    if (!title) setTitle(baseTitle);
-
-    const newNote: Note = {
-      id: crypto.randomUUID(),
-      title: baseTitle,
-      content: text,
-      summary: null,
-      messages: [],
-      createdAt: Date.now(),
-    };
-    addNote(newNote);
-    setNotes(loadNotes());
-    toast.success("File loaded & saved to notes");
   };
 
   const handleSubmit = () => {
@@ -136,12 +137,13 @@ export const RevisionSetup = ({ isLoading, onGenerate }: RevisionSetupProps) => 
         </div>
 
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-border px-4 py-2.5 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-            <Upload className="h-4 w-4" />
-            <span>Upload file (.txt / .md)</span>
+          <label className={`flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-border px-4 py-2.5 text-sm text-muted-foreground transition-colors ${fileReading ? "opacity-50 pointer-events-none" : "hover:border-primary hover:text-primary"}`}>
+            {fileReading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            <span>{fileReading ? "Reading…" : "Upload file (PDF, DOCX, TXT, MD)"}</span>
             <input
+              ref={fileRef}
               type="file"
-              accept=".txt,.md,.csv,.json,text/plain"
+              accept=".pdf,.docx,.txt,.md,.csv,.json"
               className="hidden"
               onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
             />

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Sparkles, Moon, Sun, BookOpen, Plus, Trash2, FileText, Brain, Stethoscope, Zap } from "lucide-react";
+import { Sparkles, Moon, Sun, BookOpen, Plus, Trash2, FileText, Brain, Stethoscope, Zap, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ interface AppSidebarProps {
   onDeleteNote: (id: string) => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  onLogout?: () => void;
 }
 
 const NAV = [
@@ -31,6 +32,7 @@ export const AppSidebar = ({
   onDeleteNote,
   theme,
   onToggleTheme,
+  onLogout,
 }: AppSidebarProps) => {
   const location = useLocation();
   const onNotesRoute = location.pathname === "/";
@@ -166,6 +168,17 @@ export const AppSidebar = ({
 
       <div className="mt-auto border-t border-sidebar-border px-3 py-3 space-y-1">
         <SettingsDialog />
+        {onLogout && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onLogout}
+            className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg px-3"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </Button>
+        )}
         <p className="text-[10px] text-muted-foreground px-3">
           Built for students · AI-powered
         </p>

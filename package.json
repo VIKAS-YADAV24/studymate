@@ -11,5 +11,8 @@
     "frontend:install": "npm install --prefix frontend",
     "backend:serve": "supabase functions serve --env-file ./backend/.env",
     "backend:deploy": "supabase functions deploy --project-ref $SUPABASE_PROJECT_REF"
+  },
+  "devDependencies": {
+    "supabase": "^2.98.0"
   }
 }

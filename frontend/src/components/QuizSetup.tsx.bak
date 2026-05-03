@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Sparkles, Loader2, Brain, Zap, Flame, Upload, FileText, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { addNote, loadNotes } from "@/lib/study-storage";
 import type { Note, QuizDifficulty } from "@/lib/study-types";
-import { extractFileText } from "@/lib/file-utils";
 
 interface QuizSetupProps {
   isLoading: boolean;
@@ -41,8 +40,6 @@ export const QuizSetup = ({ isLoading, onGenerate }: QuizSetupProps) => {
   const [num, setNum] = useState(10);
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string>("");
-  const [fileReading, setFileReading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setNotes(loadNotes());
@@ -63,31 +60,32 @@ export const QuizSetup = ({ isLoading, onGenerate }: QuizSetupProps) => {
 
   const handleFile = async (file: File) => {
     if (!file) return;
-    setFileReading(true);
-    try {
-      const text = await extractFileText(file);
-      if (!text) return;
-      setTopic(text);
-      setSelectedNoteId("");
-      const title = file.name.replace(/\.[^/.]+$/, "") || "Uploaded note";
-      if (text.trim().length >= 20) {
-        const newNote: Note = {
-          id: crypto.randomUUID(),
-          title,
-          content: text,
-          summary: null,
-          messages: [],
-          createdAt: Date.now(),
-        };
-        addNote(newNote);
-        setNotes(loadNotes());
-        toast.success(`Saved "${title}" to your notes`);
-      } else {
-        toast.success(`Loaded ${file.name}`);
-      }
-    } finally {
-      setFileReading(false);
-      if (fileRef.current) fileRef.current.value = "";
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Please upload a file under 2 MB.");
+      return;
+    }
+    if (!/\.(txt|md|csv|json)$/i.test(file.name)) {
+      toast.error("Only .txt, .md, .csv, .json are supported. For PDFs, paste the text.");
+      return;
+    }
+    const text = await file.text();
+    setTopic(text);
+    setSelectedNoteId("");
+    const title = file.name.replace(/\.[^/.]+$/, "") || "Uploaded note";
+    if (text.trim().length >= 20) {
+      const newNote: Note = {
+        id: crypto.randomUUID(),
+        title,
+        content: text,
+        summary: null,
+        messages: [],
+        createdAt: Date.now(),
+      };
+      addNote(newNote);
+      setNotes(loadNotes());
+      toast.success(`Saved "${title}" to your notes`);
+    } else {
+      toast.success(`Loaded ${file.name}`);
     }
   };
 
@@ -152,13 +150,12 @@ export const QuizSetup = ({ isLoading, onGenerate }: QuizSetupProps) => {
               <Upload className="h-3.5 w-3.5" />
               Upload a file
             </label>
-            <label className={`mt-2 flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-background/60 px-4 text-sm text-muted-foreground transition-colors ${fileReading ? "opacity-50 pointer-events-none" : "hover:border-primary hover:text-primary"}`}>
-              {fileReading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              <span>{fileReading ? "Reading…" : "PDF, DOCX, TXT, MD"}</span>
+            <label className="mt-2 flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-background/60 px-4 text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+              <Upload className="h-4 w-4" />
+              <span>.txt / .md / .csv / .json</span>
               <Input
-                ref={fileRef}
                 type="file"
-                accept=".pdf,.docx,.txt,.md,.csv,.json"
+                accept=".txt,.md,.csv,.json,text/plain"
                 className="hidden"
                 onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
               />

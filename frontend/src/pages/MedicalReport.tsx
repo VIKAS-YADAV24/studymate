@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Stethoscope, Upload, Loader2, FileText, Image as ImageIcon, Sparkles } from "lucide-react";
+import { Stethoscope, Upload, Loader2, FileText, Image as ImageIcon, Sparkles, FileUp } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { MedicalReportView } from "@/components/MedicalReportView";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import type { MedicalReport } from "@/lib/study-types";
 import { getUserApiKey } from "@/hooks/use-api-key";
+import { extractFileText } from "@/lib/file-utils";
 
 const MedicalReportPage = () => {
   const [text, setText] = useState("");
@@ -16,7 +17,24 @@ const MedicalReportPage = () => {
   const [imageName, setImageName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [report, setReport] = useState<MedicalReport | null>(null);
+  const [docFileReading, setDocFileReading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const docFileRef = useRef<HTMLInputElement>(null);
+
+  const handleDocFile = async (file: File) => {
+    if (!file) return;
+    setDocFileReading(true);
+    try {
+      const extracted = await extractFileText(file);
+      if (extracted) {
+        setText(extracted);
+        toast.success(`"${file.name}" loaded into text.`);
+      }
+    } finally {
+      setDocFileReading(false);
+      if (docFileRef.current) docFileRef.current.value = "";
+    }
+  };
 
   const handleFile = (file: File) => {
     if (!file) return;
@@ -112,7 +130,21 @@ const MedicalReportPage = () => {
                       </TabsTrigger>
                     </TabsList>
 
-                    <TabsContent value="text" className="mt-0">
+                    <TabsContent value="text" className="mt-0 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <label className={`flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground transition-colors ${docFileReading ? "opacity-50 pointer-events-none" : "hover:border-primary hover:text-primary border-border"}`}>
+                          {docFileReading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileUp className="h-3.5 w-3.5" />}
+                          {docFileReading ? "Reading…" : "Upload PDF or DOCX"}
+                          <input
+                            ref={docFileRef}
+                            type="file"
+                            accept=".pdf,.docx,.txt,.md"
+                            className="hidden"
+                            onChange={(e) => e.target.files?.[0] && handleDocFile(e.target.files[0])}
+                          />
+                        </label>
+                        <span className="text-xs text-muted-foreground">or paste text below</span>
+                      </div>
                       <Textarea
                         value={text}
                         onChange={(e) => setText(e.target.value)}
