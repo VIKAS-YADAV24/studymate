@@ -1,54 +1,102 @@
 import { getUserApiKey } from "@/hooks/use-api-key";
 
-const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
-const DEFAULT_MODEL = "claude-haiku-4-5";
-const SONNET_MODEL = "claude-sonnet-4-6";
+// ─── Provider detection ───────────────────────────────────────────────────────
+
+type Provider = "anthropic" | "openrouter";
+
+function detectProvider(key: string): Provider {
+  if (key.startsWith("sk-ant-")) return "anthropic";
+  return "openrouter"; // sk-or-v1-... or anything else → OpenRouter
+}
+
+// Model mapping: what to use on each provider
+const MODELS: Record<Provider, { default: string; vision: string }> = {
+  anthropic: {
+    default: "claude-haiku-4-5",
+    vision: "claude-sonnet-4-6",
+  },
+  openrouter: {
+    default: "anthropic/claude-haiku-4-5",
+    vision: "anthropic/claude-sonnet-4-6",
+  },
+};
+
+// ─── Core fetch ───────────────────────────────────────────────────────────────
 
 function getApiKey(): string {
   const key = getUserApiKey();
   if (!key) {
     throw new Error(
-      "No Anthropic API key found. Please add your API key in Settings."
+      "No API key set. Open Settings and paste your Anthropic or OpenRouter key."
     );
   }
   return key;
 }
 
-async function callAnthropic(opts: {
-  model?: string;
+async function callAI(opts: {
+  useVision?: boolean;
   system: string;
   messages: Array<{ role: "user" | "assistant"; content: unknown }>;
   max_tokens: number;
 }): Promise<string> {
-  const apiKey = getApiKey();
+  const key = getApiKey();
+  const provider = detectProvider(key);
+  const model = opts.useVision ? MODELS[provider].vision : MODELS[provider].default;
 
-  const response = await fetch(ANTHROPIC_API, {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
+  let url: string;
+  let headers: Record<string, string>;
+  let body: Record<string, unknown>;
+
+  if (provider === "anthropic") {
+    url = "https://api.anthropic.com/v1/messages";
+    headers = {
+      "x-api-key": key,
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true",
       "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: opts.model ?? DEFAULT_MODEL,
+    };
+    body = {
+      model,
       max_tokens: opts.max_tokens,
       system: opts.system,
       messages: opts.messages,
-    }),
+    };
+  } else {
+    // OpenRouter uses OpenAI-compatible format
+    url = "https://openrouter.ai/api/v1/chat/completions";
+    headers = {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": window.location.origin,
+      "X-Title": "StudyMate",
+    };
+    body = {
+      model,
+      max_tokens: opts.max_tokens,
+      messages: [
+        { role: "system", content: opts.system },
+        ...opts.messages,
+      ],
+    };
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
   });
 
   if (response.status === 401) {
-    throw new Error(
-      "Invalid API key. Please check your Anthropic API key in Settings."
-    );
+    throw new Error("Invalid API key. Please check your key in Settings.");
   }
   if (response.status === 429) {
     throw new Error("Rate limit reached. Please wait a moment and try again.");
   }
   if (response.status === 402) {
     throw new Error(
-      "Your Anthropic API account has insufficient credits. Please add credits at console.anthropic.com."
+      provider === "anthropic"
+        ? "Insufficient credits. Add credits at console.anthropic.com/settings/billing."
+        : "Insufficient credits. Add credits at openrouter.ai/credits."
     );
   }
   if (!response.ok) {
@@ -57,8 +105,13 @@ async function callAnthropic(opts: {
   }
 
   const data = await response.json();
-  const raw: string = data.content?.[0]?.text ?? "";
-  return raw;
+
+  // Different response shapes
+  if (provider === "anthropic") {
+    return (data.content?.[0]?.text as string) ?? "";
+  } else {
+    return (data.choices?.[0]?.message?.content as string) ?? "";
+  }
 }
 
 function parseJson<T>(raw: string): T {
@@ -85,7 +138,7 @@ export async function summarizeContent(content: string) {
     throw new Error("Please provide at least 20 characters of study material.");
   }
   const trimmed = content.length > 16000 ? content.slice(0, 16000) : content;
-  const raw = await callAnthropic({
+  const raw = await callAI({
     system: SUMMARIZE_SYSTEM,
     messages: [{ role: "user", content: `Study material:\n\n${trimmed}` }],
     max_tokens: 2048,
@@ -106,16 +159,14 @@ export async function chatWithNotes(
 Study material:
 ${(sourceContent || "").slice(0, 12000)}`;
 
-  const anthropicMessages = messages.map((m) => ({
-    role: (m.role === "assistant" ? "assistant" : "user") as
-      | "user"
-      | "assistant",
+  const aiMessages = messages.map((m) => ({
+    role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
     content: m.content,
   }));
 
-  return callAnthropic({
+  return callAI({
     system: systemPrompt,
-    messages: anthropicMessages,
+    messages: aiMessages,
     max_tokens: 1024,
   });
 }
@@ -135,9 +186,7 @@ export async function generateQuiz(
   numQuestions: number
 ) {
   if (!topic || topic.trim().length < 3) {
-    throw new Error(
-      "Please provide a topic or some study text (at least 3 characters)."
-    );
+    throw new Error("Please provide a topic or some study text (at least 3 characters).");
   }
   const diffKey = difficulty.toLowerCase();
   if (!DIFFICULTY_GUIDE[diffKey]) {
@@ -160,7 +209,7 @@ Hard requirements:
 - Return ONLY valid JSON in this exact shape, no markdown fences:
 {"title":"...","questions":[{"question":"...","options":["...","...","...","..."],"correctIndex":0,"explanation":"..."}]}`;
 
-  const raw = await callAnthropic({
+  const raw = await callAI({
     system: systemPrompt,
     messages: [{ role: "user", content: `Topic / source text:\n\n${trimmed}` }],
     max_tokens: 4096,
@@ -199,7 +248,7 @@ export async function generateRevision(content: string) {
     throw new Error("Please provide at least 20 characters of study material.");
   }
   const trimmed = content.length > 16000 ? content.slice(0, 16000) : content;
-  const raw = await callAnthropic({
+  const raw = await callAI({
     system: REVISION_SYSTEM,
     messages: [{ role: "user", content: `Study material:\n\n${trimmed}` }],
     max_tokens: 3000,
@@ -235,39 +284,46 @@ export async function interpretMedicalReport(opts: {
   imageDataUrl?: string;
 }) {
   if (!opts.text && !opts.imageDataUrl) {
-    throw new Error(
-      "Provide either text or an imageDataUrl from a medical report."
-    );
+    throw new Error("Provide either text or an imageDataUrl from a medical report.");
   }
   if (opts.text && opts.text.length > 30000) {
     throw new Error("Text is too long. Please paste up to 30,000 characters.");
   }
 
-  const userContent: Array<Record<string, unknown>> = [];
-  if (opts.text) {
-    userContent.push({
-      type: "text",
-      text: `Medical report text:\n\n${opts.text}`,
-    });
-  }
+  const key = getApiKey();
+  const provider = detectProvider(key);
+
   if (opts.imageDataUrl) {
     const matches = opts.imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (matches) {
-      userContent.push({
-        type: "text",
-        text: "Here is an image of a medical report. Please read its contents and interpret.",
-      });
-      userContent.push({
-        type: "image",
-        source: { type: "base64", media_type: matches[1], data: matches[2] },
-      });
+    if (!matches) throw new Error("Invalid image data URL.");
+
+    let userContent: unknown;
+    if (provider === "anthropic") {
+      userContent = [
+        { type: "text", text: "Here is an image of a medical report. Please read its contents and interpret." },
+        { type: "image", source: { type: "base64", media_type: matches[1], data: matches[2] } },
+      ];
+    } else {
+      // OpenRouter / OpenAI vision format
+      userContent = [
+        { type: "text", text: "Here is an image of a medical report. Please read its contents and interpret." },
+        { type: "image_url", image_url: { url: opts.imageDataUrl } },
+      ];
     }
+
+    const raw = await callAI({
+      useVision: true,
+      system: MEDICAL_SYSTEM,
+      messages: [{ role: "user", content: userContent as string }],
+      max_tokens: 3000,
+    });
+    return parseJson(raw);
   }
 
-  const raw = await callAnthropic({
-    model: opts.imageDataUrl ? SONNET_MODEL : DEFAULT_MODEL,
+  // Text-only — same for both providers
+  const raw = await callAI({
     system: MEDICAL_SYSTEM,
-    messages: [{ role: "user", content: userContent as unknown as string }],
+    messages: [{ role: "user", content: `Medical report text:\n\n${opts.text}` }],
     max_tokens: 3000,
   });
   return parseJson(raw);
