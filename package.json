@@ -1,0 +1,15 @@
+{
+  "name": "studymate",
+  "private": true,
+  "version": "1.0.0",
+  "description": "StudyMate — AI study assistant. Frontend (Vite/React) + Backend (Supabase Edge Functions on Lovable Cloud).",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "preview": "npm run preview --prefix frontend",
+    "frontend": "npm run dev --prefix frontend",
+    "frontend:install": "npm install --prefix frontend",
+    "backend:serve": "supabase functions serve --env-file ./backend/.env",
+    "backend:deploy": "supabase functions deploy --project-ref $SUPABASE_PROJECT_REF"
+  }
+}
